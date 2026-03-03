@@ -5,14 +5,24 @@ import {
   addDoc,
   getDoc,
   getDocs,
+  setDoc,
   updateDoc,
   query,
   where,
+  orderBy,
   Timestamp,
+  writeBatch,
+  arrayUnion,
 } from "firebase/firestore";
 import { FirebaseApp } from "firebase/app";
 import { Attendee, PastEvent } from "@/types/attendee";
 import { IDatabaseProvider } from "@/services/IDatabaseProvider";
+import {
+  Event,
+  Registration,
+  GlobalAttendee,
+  EventHistoryEntry,
+} from "@/types/event";
 
 export class FirebaseDatabaseProvider implements IDatabaseProvider {
   private db;
@@ -135,5 +145,169 @@ export class FirebaseDatabaseProvider implements IDatabaseProvider {
     }
 
     return events;
+  }
+
+  // ── Event Management ──────────────────────────────────────────────
+
+  async createEvent(event: Omit<Event, "id">): Promise<Event> {
+    const docRef = await addDoc(collection(this.db, "events"), {
+      name: event.name,
+      date: Timestamp.fromDate(event.date),
+      venue: event.venue,
+      created_at: Timestamp.fromDate(event.createdAt),
+    });
+
+    return { id: docRef.id, ...event };
+  }
+
+  async listEvents(): Promise<Event[]> {
+    const q = query(
+      collection(this.db, "events"),
+      orderBy("date", "desc")
+    );
+    const snapshot = await getDocs(q);
+
+    return snapshot.docs.map((docSnap) => {
+      const d = docSnap.data();
+      return {
+        id: docSnap.id,
+        name: d.name,
+        date: (d.date as Timestamp).toDate(),
+        venue: d.venue ?? "",
+        createdAt: d.created_at
+          ? (d.created_at as Timestamp).toDate()
+          : new Date(),
+      };
+    });
+  }
+
+  async getEvent(eventId: string): Promise<Event | null> {
+    const docSnap = await getDoc(doc(this.db, "events", eventId));
+    if (!docSnap.exists()) return null;
+
+    const d = docSnap.data();
+    return {
+      id: docSnap.id,
+      name: d.name,
+      date: (d.date as Timestamp).toDate(),
+      venue: d.venue ?? "",
+      createdAt: d.created_at
+        ? (d.created_at as Timestamp).toDate()
+        : new Date(),
+    };
+  }
+
+  // ── Registration Management ───────────────────────────────────────
+
+  async batchCreateRegistrations(
+    eventId: string,
+    rows: { name: string; email: string; displayId: string }[]
+  ): Promise<number> {
+    // Firestore batch writes are limited to 500 operations.
+    // Each row = 1 registration doc + 1 global attendee upsert = 2 ops.
+    // We chunk into batches of 250 rows (500 ops) to stay within the limit.
+    const CHUNK_SIZE = 250;
+    let created = 0;
+
+    for (let i = 0; i < rows.length; i += CHUNK_SIZE) {
+      const chunk = rows.slice(i, i + CHUNK_SIZE);
+      const batch = writeBatch(this.db);
+
+      for (const row of chunk) {
+        // 1. Create registration document
+        const regRef = doc(collection(this.db, "registrations"));
+        batch.set(regRef, {
+          event_id: eventId,
+          email: row.email,
+          name: row.name,
+          status: "pending",
+          display_id: row.displayId,
+        });
+
+        // 2. Upsert global attendee
+        const attendeeRef = doc(this.db, "global_attendees", row.email);
+        batch.set(
+          attendeeRef,
+          {
+            email: row.email,
+            name: row.name,
+            trust_score: 100,
+            event_history: arrayUnion({
+              event_id: eventId,
+              status: "pending",
+              display_id: row.displayId,
+            }),
+          },
+          { merge: true }
+        );
+
+        created++;
+      }
+
+      await batch.commit();
+    }
+
+    return created;
+  }
+
+  async listRegistrations(eventId: string): Promise<Registration[]> {
+    const q = query(
+      collection(this.db, "registrations"),
+      where("event_id", "==", eventId)
+    );
+    const snapshot = await getDocs(q);
+
+    return snapshot.docs.map((docSnap) => {
+      const d = docSnap.data();
+      return {
+        id: docSnap.id,
+        eventId: d.event_id,
+        email: d.email,
+        name: d.name ?? "",
+        status: d.status ?? "pending",
+        displayId: d.display_id ?? "",
+      };
+    });
+  }
+
+  // ── Global Attendees ──────────────────────────────────────────────
+
+  async upsertGlobalAttendee(
+    email: string,
+    name: string,
+    historyEntry: EventHistoryEntry
+  ): Promise<GlobalAttendee> {
+    const attendeeRef = doc(this.db, "global_attendees", email);
+
+    await setDoc(
+      attendeeRef,
+      {
+        email,
+        name,
+        trust_score: 100,
+        event_history: arrayUnion({
+          event_id: historyEntry.eventId,
+          status: historyEntry.status,
+          display_id: historyEntry.displayId,
+        }),
+      },
+      { merge: true }
+    );
+
+    const updated = await getDoc(attendeeRef);
+    const data = updated.data()!;
+
+    return {
+      email: data.email,
+      name: data.name,
+      trustScore: data.trust_score ?? 100,
+      eventHistory: (data.event_history ?? []).map(
+        (e: { event_id: string; status: string; display_id: string }) => ({
+          eventId: e.event_id,
+          status: e.status,
+          displayId: e.display_id,
+        })
+      ),
+    };
   }
 }
