@@ -29,10 +29,10 @@ function parseCSV(text: string): { name: string; email: string }[] {
 
   if (lines.length === 0) return [];
 
-  // Check if first line is a header
-  const firstLine = lines[0].toLowerCase();
+  // Check if first line is a header by exact field match
+  const firstLineParts = lines[0].split(",").map((p) => p.trim().toLowerCase());
   const startIndex =
-    firstLine.includes("name") && firstLine.includes("email") ? 1 : 0;
+    firstLineParts.length >= 2 && firstLineParts[0] === "name" && firstLineParts[1] === "email" ? 1 : 0;
 
   const rows: { name: string; email: string }[] = [];
 
