@@ -1,4 +1,3 @@
-import { v4 as uuidv4 } from "uuid";
 import { serviceProvider } from "@/services/ServiceProvider";
 import { generatePassImage } from "@/services/passGenerator";
 
@@ -45,8 +44,8 @@ async function isBlacklisted(email: string): Promise<boolean> {
  * 1. Check blacklist — if the user has 2+ past registrations with no attendance,
  *    deny the registration.
  * 2. Check for duplicate registration — if already registered for this event, reject.
- * 3. Generate a unique ticket_id (UUID).
- * 4. Save the attendee record.
+ * 3. Save the attendee record.
+ * 4. Use the attendee document ID as the ticket_id (for QR code check-in).
  * 5. Generate the event pass image.
  * 6. Send the pass email via IMailProvider.
  */
@@ -75,10 +74,7 @@ export async function registerAttendee(
     };
   }
 
-  // Step 3: Generate ticket_id
-  const ticketId = uuidv4();
-
-  // Step 4: Save attendee record
+  // Step 3: Save attendee record
   const attendee = await serviceProvider.database.saveAttendee({
     name: request.name,
     email: request.email,
@@ -87,6 +83,11 @@ export async function registerAttendee(
     checkInTime: null,
     registeredAt: new Date(),
   });
+
+  // Step 4: Use attendee document ID as the ticket_id.
+  // This ensures the QR code on the pass encodes the same ID that
+  // updateCheckIn() expects, enabling seamless scan-to-checkin.
+  const ticketId = attendee.id;
 
   // Step 5: Generate pass image buffer (to be attached to the email)
   const passImageBuffer = await generatePassImage({

@@ -76,6 +76,21 @@ export class FirebaseDatabaseProvider implements IDatabaseProvider {
     checkedIn: boolean
   ): Promise<Attendee> {
     const docRef = doc(this.db, "attendees", attendeeId);
+
+    // Read current state first to detect "already checked in"
+    const currentDoc = await getDoc(docRef);
+
+    if (!currentDoc.exists()) {
+      throw new Error(`Attendee with ID ${attendeeId} not found`);
+    }
+
+    const currentData = currentDoc.data();
+
+    // If already in the desired check-in state, throw a descriptive error
+    if (currentData.checkedIn === checkedIn && checkedIn) {
+      throw new Error("Attendee already checked in");
+    }
+
     const checkInTime = checkedIn ? Timestamp.fromDate(new Date()) : null;
 
     await updateDoc(docRef, {
@@ -83,24 +98,14 @@ export class FirebaseDatabaseProvider implements IDatabaseProvider {
       checkInTime,
     });
 
-    const updatedDoc = await getDoc(docRef);
-
-    if (!updatedDoc.exists()) {
-      throw new Error(`Attendee with ID ${attendeeId} not found`);
-    }
-
-    const data = updatedDoc.data();
-
     return {
-      id: updatedDoc.id,
-      name: data.name,
-      email: data.email,
-      eventId: data.eventId,
-      checkedIn: data.checkedIn,
-      checkInTime: data.checkInTime
-        ? (data.checkInTime as Timestamp).toDate()
-        : null,
-      registeredAt: (data.registeredAt as Timestamp).toDate(),
+      id: currentDoc.id,
+      name: currentData.name,
+      email: currentData.email,
+      eventId: currentData.eventId,
+      checkedIn,
+      checkInTime: checkInTime ? checkInTime.toDate() : null,
+      registeredAt: (currentData.registeredAt as Timestamp).toDate(),
     };
   }
 
