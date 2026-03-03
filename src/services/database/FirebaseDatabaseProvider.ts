@@ -204,8 +204,8 @@ export class FirebaseDatabaseProvider implements IDatabaseProvider {
     rows: { name: string; email: string; displayId: string }[]
   ): Promise<number> {
     // Firestore batch writes are limited to 500 operations.
-    // Each row = 1 registration doc + 1 global attendee upsert = 2 ops.
-    // We chunk into batches of 250 rows (500 ops) to stay within the limit.
+    // We chunk rows and group by email to avoid duplicate batch.set() calls
+    // on the same global_attendee document (which would silently drop entries).
     const CHUNK_SIZE = 250;
     let created = 0;
 
@@ -213,8 +213,17 @@ export class FirebaseDatabaseProvider implements IDatabaseProvider {
       const chunk = rows.slice(i, i + CHUNK_SIZE);
       const batch = writeBatch(this.db);
 
+      // Group rows by email to build a single batch.set() per unique email
+      const emailGroups = new Map<
+        string,
+        {
+          name: string;
+          entries: { event_id: string; status: string; display_id: string }[];
+        }
+      >();
+
       for (const row of chunk) {
-        // 1. Create registration document
+        // 1. Create registration document (always unique, auto-ID)
         const regRef = doc(collection(this.db, "registrations"));
         batch.set(regRef, {
           event_id: eventId,
@@ -224,24 +233,39 @@ export class FirebaseDatabaseProvider implements IDatabaseProvider {
           display_id: row.displayId,
         });
 
-        // 2. Upsert global attendee
-        const attendeeRef = doc(this.db, "global_attendees", row.email);
+        // 2. Collect event_history entries grouped by email
+        const existing = emailGroups.get(row.email);
+        const entry = {
+          event_id: eventId,
+          status: "pending",
+          display_id: row.displayId,
+        };
+
+        if (existing) {
+          existing.entries.push(entry);
+        } else {
+          emailGroups.set(row.email, {
+            name: row.name,
+            entries: [entry],
+          });
+        }
+
+        created++;
+      }
+
+      // 3. Write one batch.set() per unique email with all arrayUnion entries
+      for (const [email, group] of emailGroups) {
+        const attendeeRef = doc(this.db, "global_attendees", email);
         batch.set(
           attendeeRef,
           {
-            email: row.email,
-            name: row.name,
+            email,
+            name: group.name,
             trust_score: 100,
-            event_history: arrayUnion({
-              event_id: eventId,
-              status: "pending",
-              display_id: row.displayId,
-            }),
+            event_history: arrayUnion(...group.entries),
           },
           { merge: true }
         );
-
-        created++;
       }
 
       await batch.commit();
