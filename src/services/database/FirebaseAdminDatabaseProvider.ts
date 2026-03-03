@@ -1,20 +1,4 @@
-import {
-  getFirestore,
-  collection,
-  doc,
-  addDoc,
-  getDoc,
-  getDocs,
-  setDoc,
-  updateDoc,
-  query,
-  where,
-  orderBy,
-  Timestamp,
-  writeBatch,
-  arrayUnion,
-} from "firebase/firestore";
-import { FirebaseApp } from "firebase/app";
+import { Firestore, FieldValue, Timestamp } from "firebase-admin/firestore";
 import { Attendee, PastEvent } from "@/types/attendee";
 import { IDatabaseProvider } from "@/services/IDatabaseProvider";
 import {
@@ -24,15 +8,20 @@ import {
   EventHistoryEntry,
 } from "@/types/event";
 
-export class FirebaseDatabaseProvider implements IDatabaseProvider {
-  private db;
+/**
+ * Server-side Firebase Admin SDK implementation of IDatabaseProvider.
+ * Uses firebase-admin which bypasses Firestore security rules.
+ * This should be used in API routes (server-side only).
+ */
+export class FirebaseAdminDatabaseProvider implements IDatabaseProvider {
+  private db: Firestore;
 
-  constructor(app: FirebaseApp) {
-    this.db = getFirestore(app);
+  constructor(db: Firestore) {
+    this.db = db;
   }
 
   async saveAttendee(attendee: Omit<Attendee, "id">): Promise<Attendee> {
-    const docRef = await addDoc(collection(this.db, "attendees"), {
+    const docRef = await this.db.collection("attendees").add({
       name: attendee.name,
       email: attendee.email,
       eventId: attendee.eventId,
@@ -53,13 +42,11 @@ export class FirebaseDatabaseProvider implements IDatabaseProvider {
     email: string,
     eventId: string
   ): Promise<Attendee | null> {
-    const q = query(
-      collection(this.db, "attendees"),
-      where("email", "==", email),
-      where("eventId", "==", eventId)
-    );
-
-    const snapshot = await getDocs(q);
+    const snapshot = await this.db
+      .collection("attendees")
+      .where("email", "==", email)
+      .where("eventId", "==", eventId)
+      .get();
 
     if (snapshot.empty) {
       return null;
@@ -85,25 +72,22 @@ export class FirebaseDatabaseProvider implements IDatabaseProvider {
     attendeeId: string,
     checkedIn: boolean
   ): Promise<Attendee> {
-    const docRef = doc(this.db, "attendees", attendeeId);
+    const docRef = this.db.collection("attendees").doc(attendeeId);
+    const currentDoc = await docRef.get();
 
-    // Read current state first to detect "already checked in"
-    const currentDoc = await getDoc(docRef);
-
-    if (!currentDoc.exists()) {
+    if (!currentDoc.exists) {
       throw new Error(`Attendee with ID ${attendeeId} not found`);
     }
 
-    const currentData = currentDoc.data();
+    const currentData = currentDoc.data()!;
 
-    // If already in the desired check-in state, throw a descriptive error
     if (currentData.checkedIn === checkedIn && checkedIn) {
       throw new Error("Attendee already checked in");
     }
 
     const checkInTime = checkedIn ? Timestamp.fromDate(new Date()) : null;
 
-    await updateDoc(docRef, {
+    await docRef.update({
       checkedIn,
       checkInTime,
     });
@@ -120,19 +104,20 @@ export class FirebaseDatabaseProvider implements IDatabaseProvider {
   }
 
   async getPastEventHistory(email: string): Promise<PastEvent[]> {
-    const q = query(
-      collection(this.db, "attendees"),
-      where("email", "==", email)
-    );
-
-    const snapshot = await getDocs(q);
+    const snapshot = await this.db
+      .collection("attendees")
+      .where("email", "==", email)
+      .get();
 
     const events: PastEvent[] = [];
 
     for (const docSnap of snapshot.docs) {
       const data = docSnap.data();
-      const eventDoc = await getDoc(doc(this.db, "events", data.eventId));
-      const eventData = eventDoc.exists() ? eventDoc.data() : null;
+      const eventDoc = await this.db
+        .collection("events")
+        .doc(data.eventId)
+        .get();
+      const eventData = eventDoc.exists ? eventDoc.data() : null;
 
       events.push({
         eventId: data.eventId,
@@ -150,7 +135,7 @@ export class FirebaseDatabaseProvider implements IDatabaseProvider {
   // ── Event Management ──────────────────────────────────────────────
 
   async createEvent(event: Omit<Event, "id">): Promise<Event> {
-    const docRef = await addDoc(collection(this.db, "events"), {
+    const docRef = await this.db.collection("events").add({
       name: event.name,
       date: Timestamp.fromDate(event.date),
       venue: event.venue,
@@ -161,11 +146,10 @@ export class FirebaseDatabaseProvider implements IDatabaseProvider {
   }
 
   async listEvents(): Promise<Event[]> {
-    const q = query(
-      collection(this.db, "events"),
-      orderBy("date", "desc")
-    );
-    const snapshot = await getDocs(q);
+    const snapshot = await this.db
+      .collection("events")
+      .orderBy("date", "desc")
+      .get();
 
     return snapshot.docs.map((docSnap) => {
       const d = docSnap.data();
@@ -182,10 +166,10 @@ export class FirebaseDatabaseProvider implements IDatabaseProvider {
   }
 
   async getEvent(eventId: string): Promise<Event | null> {
-    const docSnap = await getDoc(doc(this.db, "events", eventId));
-    if (!docSnap.exists()) return null;
+    const docSnap = await this.db.collection("events").doc(eventId).get();
+    if (!docSnap.exists) return null;
 
-    const d = docSnap.data();
+    const d = docSnap.data()!;
     return {
       id: docSnap.id,
       name: d.name,
@@ -203,15 +187,12 @@ export class FirebaseDatabaseProvider implements IDatabaseProvider {
     eventId: string,
     rows: { name: string; email: string; displayId: string }[]
   ): Promise<number> {
-    // Firestore batch writes are limited to 500 operations.
-    // We chunk rows and group by email to avoid duplicate batch.set() calls
-    // on the same global_attendee document (which would silently drop entries).
     const CHUNK_SIZE = 250;
     let created = 0;
 
     for (let i = 0; i < rows.length; i += CHUNK_SIZE) {
       const chunk = rows.slice(i, i + CHUNK_SIZE);
-      const batch = writeBatch(this.db);
+      const batch = this.db.batch();
 
       // Group rows by email to build a single batch.set() per unique email
       const emailGroups = new Map<
@@ -224,7 +205,7 @@ export class FirebaseDatabaseProvider implements IDatabaseProvider {
 
       for (const row of chunk) {
         // 1. Create registration document (always unique, auto-ID)
-        const regRef = doc(collection(this.db, "registrations"));
+        const regRef = this.db.collection("registrations").doc();
         batch.set(regRef, {
           event_id: eventId,
           email: row.email,
@@ -255,14 +236,14 @@ export class FirebaseDatabaseProvider implements IDatabaseProvider {
 
       // 3. Write one batch.set() per unique email with all arrayUnion entries
       for (const [email, group] of emailGroups) {
-        const attendeeRef = doc(this.db, "global_attendees", email);
+        const attendeeRef = this.db.collection("global_attendees").doc(email);
         batch.set(
           attendeeRef,
           {
             email,
             name: group.name,
             trust_score: 100,
-            event_history: arrayUnion(...group.entries),
+            event_history: FieldValue.arrayUnion(...group.entries),
           },
           { merge: true }
         );
@@ -275,11 +256,10 @@ export class FirebaseDatabaseProvider implements IDatabaseProvider {
   }
 
   async listRegistrations(eventId: string): Promise<Registration[]> {
-    const q = query(
-      collection(this.db, "registrations"),
-      where("event_id", "==", eventId)
-    );
-    const snapshot = await getDocs(q);
+    const snapshot = await this.db
+      .collection("registrations")
+      .where("event_id", "==", eventId)
+      .get();
 
     return snapshot.docs.map((docSnap) => {
       const d = docSnap.data();
@@ -301,15 +281,14 @@ export class FirebaseDatabaseProvider implements IDatabaseProvider {
     name: string,
     historyEntry: EventHistoryEntry
   ): Promise<GlobalAttendee> {
-    const attendeeRef = doc(this.db, "global_attendees", email);
+    const attendeeRef = this.db.collection("global_attendees").doc(email);
 
-    await setDoc(
-      attendeeRef,
+    await attendeeRef.set(
       {
         email,
         name,
         trust_score: 100,
-        event_history: arrayUnion({
+        event_history: FieldValue.arrayUnion({
           event_id: historyEntry.eventId,
           status: historyEntry.status,
           display_id: historyEntry.displayId,
@@ -318,7 +297,7 @@ export class FirebaseDatabaseProvider implements IDatabaseProvider {
       { merge: true }
     );
 
-    const updated = await getDoc(attendeeRef);
+    const updated = await attendeeRef.get();
     const data = updated.data()!;
 
     return {
