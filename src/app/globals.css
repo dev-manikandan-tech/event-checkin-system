@@ -25,3 +25,18 @@ body {
     text-wrap: balance;
   }
 }
+
+/* Constrain html5-qrcode injected elements so the camera feed never causes
+   horizontal overflow on mobile viewports. */
+#qr-reader video,
+#qr-reader img,
+#qr-reader canvas {
+  max-width: 100% !important;
+  height: auto !important;
+  object-fit: contain;
+}
+
+#qr-reader {
+  max-width: 100% !important;
+  overflow: hidden;
+}
