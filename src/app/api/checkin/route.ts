@@ -1,9 +1,13 @@
 import { NextRequest, NextResponse } from "next/server";
 import { adminDb } from "@/lib/firebaseAdmin";
-import { FirebaseAdminDatabaseProvider } from "@/services/database/FirebaseAdminDatabaseProvider";
 
-const dbProvider = new FirebaseAdminDatabaseProvider(adminDb);
-
+/**
+ * POST /api/checkin — Check in an attendee by registration ID.
+ *
+ * The QR code encodes the registration document ID from the "registrations"
+ * collection. This route looks up that document, verifies it exists and
+ * hasn't already been checked in, then updates its status to "checked_in".
+ */
 export async function POST(request: NextRequest) {
   try {
     const body = (await request.json()) as { attendeeId?: string };
@@ -15,48 +19,57 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    try {
-      const attendee = await dbProvider.updateCheckIn(
-        body.attendeeId,
-        true
-      );
+    const registrationId = body.attendeeId;
 
+    // Look up in the "registrations" collection
+    const regRef = adminDb.collection("registrations").doc(registrationId);
+    const regDoc = await regRef.get();
+
+    if (!regDoc.exists) {
+      return NextResponse.json(
+        { success: false, message: "Registration not found." },
+        { status: 404 }
+      );
+    }
+
+    const regData = regDoc.data()!;
+
+    // Check if already checked in
+    if (regData.status === "checked_in") {
       return NextResponse.json(
         {
-          success: true,
-          message: "Check-in successful!",
+          success: false,
+          message: "This attendee has already been checked in.",
           attendee: {
-            id: attendee.id,
-            name: attendee.name,
-            email: attendee.email,
-            checkedIn: attendee.checkedIn,
+            id: regDoc.id,
+            name: regData.name ?? "",
+            email: regData.email,
+            checkedIn: true,
           },
         },
-        { status: 200 }
+        { status: 409 }
       );
-    } catch (error) {
-      const errorMessage =
-        error instanceof Error ? error.message : "Unknown error";
-
-      if (errorMessage.includes("already checked in")) {
-        return NextResponse.json(
-          {
-            success: false,
-            message: "This attendee has already been checked in.",
-          },
-          { status: 409 }
-        );
-      }
-
-      if (errorMessage.includes("not found")) {
-        return NextResponse.json(
-          { success: false, message: "Attendee not found." },
-          { status: 404 }
-        );
-      }
-
-      throw error;
     }
+
+    // Update registration status to checked_in
+    await regRef.update({
+      status: "checked_in",
+      checkedInAt: new Date(),
+    });
+
+    return NextResponse.json(
+      {
+        success: true,
+        message: "Check-in successful!",
+        attendee: {
+          id: regDoc.id,
+          name: regData.name ?? "",
+          email: regData.email,
+          checkedIn: true,
+        },
+      },
+      { status: 200 }
+    );
   } catch (error) {
     console.error("Check-in error:", error);
     return NextResponse.json(
