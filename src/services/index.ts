@@ -3,5 +3,6 @@ export type { IMailProvider, PassEmailOptions } from "./IMailProvider";
 export { serviceProvider } from "./ServiceProvider";
 export { FirebaseDatabaseProvider } from "./database/FirebaseDatabaseProvider";
 export { SendGridMailProvider } from "./mail/SendGridMailProvider";
+export { MailgunMailProvider } from "./mail/MailgunMailProvider";
 export { registerAttendee } from "./registrationService";
 export type { RegistrationRequest, RegistrationResult } from "./registrationService";
