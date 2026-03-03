@@ -1,8 +1,8 @@
 import { NextRequest, NextResponse } from "next/server";
-import { app } from "@/lib/firebase";
-import { FirebaseDatabaseProvider } from "@/services/database/FirebaseDatabaseProvider";
+import { adminDb } from "@/lib/firebaseAdmin";
+import { FirebaseAdminDatabaseProvider } from "@/services/database/FirebaseAdminDatabaseProvider";
 
-const dbProvider = new FirebaseDatabaseProvider(app);
+const dbProvider = new FirebaseAdminDatabaseProvider(adminDb);
 
 /**
  * Generate display_id in the format: TNX_${EventDate_DDMMYY}_${Index_Padded}
