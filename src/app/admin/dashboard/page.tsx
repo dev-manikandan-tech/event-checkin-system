@@ -1,27 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
-import {
-  collection,
-  onSnapshot,
-  query,
-  where,
-  doc,
-  getDoc,
-} from "firebase/firestore";
-import { db } from "@/lib/firebase";
-
-interface AttendeeDoc {
-  name: string;
-  email: string;
-  eventId: string;
-  checkedIn: boolean;
-}
-
-interface EventDoc {
-  name: string;
-  date: { toDate: () => Date } | null;
-}
+import { useEffect, useState, useCallback } from "react";
 
 interface PastEventStats {
   eventId: string;
@@ -31,97 +10,51 @@ interface PastEventStats {
   totalCheckedIn: number;
 }
 
+interface DashboardData {
+  totalRegistered: number;
+  totalCheckedIn: number;
+  pastEvents: PastEventStats[];
+}
+
 export default function AdminDashboard() {
   const [totalRegistered, setTotalRegistered] = useState(0);
   const [totalCheckedIn, setTotalCheckedIn] = useState(0);
   const [pastEvents, setPastEvents] = useState<PastEventStats[]>([]);
   const [currentEventId, setCurrentEventId] = useState("");
   const [loading, setLoading] = useState(true);
+  const [error, setError] = useState("");
 
-  // Real-time listener for current event stats
-  useEffect(() => {
-    if (!currentEventId) {
-      // Listen to ALL attendees if no specific event selected
-      const q = query(collection(db, "attendees"));
-      const unsubscribe = onSnapshot(q, (snapshot) => {
-        const docs = snapshot.docs.map((d) => d.data() as AttendeeDoc);
-        setTotalRegistered(docs.length);
-        setTotalCheckedIn(docs.filter((d) => d.checkedIn).length);
-        setLoading(false);
-      });
-      return () => unsubscribe();
-    }
-
-    const q = query(
-      collection(db, "attendees"),
-      where("eventId", "==", currentEventId)
-    );
-
-    const unsubscribe = onSnapshot(q, (snapshot) => {
-      const docs = snapshot.docs.map((d) => d.data() as AttendeeDoc);
-      setTotalRegistered(docs.length);
-      setTotalCheckedIn(docs.filter((d) => d.checkedIn).length);
+  const fetchDashboardData = useCallback(async () => {
+    try {
+      const params = new URLSearchParams();
+      if (currentEventId) {
+        params.set("eventId", currentEventId);
+      }
+      const res = await fetch(`/api/admin/dashboard?${params.toString()}`);
+      if (!res.ok) {
+        throw new Error("Failed to fetch dashboard data");
+      }
+      const data: DashboardData = await res.json();
+      setTotalRegistered(data.totalRegistered);
+      setTotalCheckedIn(data.totalCheckedIn);
+      setPastEvents(data.pastEvents);
+      setError("");
+    } catch (err) {
+      console.error("Dashboard fetch error:", err);
+      setError("Failed to load dashboard data. Please try again.");
+    } finally {
       setLoading(false);
-    });
-
-    return () => unsubscribe();
+    }
   }, [currentEventId]);
 
-  // Load past events data
+  // Initial fetch and polling every 10 seconds
   useEffect(() => {
-    const q = query(collection(db, "attendees"));
+    setLoading(true);
+    fetchDashboardData();
 
-    const unsubscribe = onSnapshot(q, async (snapshot) => {
-      const docs = snapshot.docs.map((d) => d.data() as AttendeeDoc);
-
-      // Group by eventId
-      const eventGroups: Record<
-        string,
-        { total: number; checkedIn: number }
-      > = {};
-      for (const attendee of docs) {
-        if (!eventGroups[attendee.eventId]) {
-          eventGroups[attendee.eventId] = { total: 0, checkedIn: 0 };
-        }
-        eventGroups[attendee.eventId].total++;
-        if (attendee.checkedIn) {
-          eventGroups[attendee.eventId].checkedIn++;
-        }
-      }
-
-      // Fetch event details
-      const events: PastEventStats[] = [];
-      for (const eventId of Object.keys(eventGroups)) {
-        let eventName = eventId;
-        let eventDate = "N/A";
-
-        try {
-          const eventDoc = await getDoc(doc(db, "events", eventId));
-          if (eventDoc.exists()) {
-            const data = eventDoc.data() as EventDoc;
-            eventName = data.name || eventId;
-            if (data.date) {
-              eventDate = data.date.toDate().toLocaleDateString();
-            }
-          }
-        } catch {
-          // Event doc might not exist, use eventId as name
-        }
-
-        events.push({
-          eventId,
-          eventName,
-          date: eventDate,
-          totalRegistered: eventGroups[eventId].total,
-          totalCheckedIn: eventGroups[eventId].checkedIn,
-        });
-      }
-
-      setPastEvents(events);
-    });
-
-    return () => unsubscribe();
-  }, []);
+    const interval = setInterval(fetchDashboardData, 10000);
+    return () => clearInterval(interval);
+  }, [fetchDashboardData]);
 
   const checkedInPercent =
     totalRegistered > 0
@@ -159,12 +92,19 @@ export default function AdminDashboard() {
           />
         </div>
 
+        {/* Error Message */}
+        {error && (
+          <div className="mb-6 rounded-lg border border-red-800 bg-red-900/50 p-4 text-red-300">
+            {error}
+          </div>
+        )}
+
         {/* Stats Cards */}
         {loading ? (
           <div className="flex items-center justify-center py-12">
             <div className="h-8 w-8 animate-spin rounded-full border-2 border-blue-500 border-t-transparent" />
             <span className="ml-3 text-gray-400">
-              Connecting to Firebase...
+              Loading dashboard data...
             </span>
           </div>
         ) : (

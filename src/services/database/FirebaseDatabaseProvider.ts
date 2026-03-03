@@ -254,7 +254,7 @@ export class FirebaseDatabaseProvider implements IDatabaseProvider {
       }
 
       // 3. Write one batch.set() per unique email with all arrayUnion entries
-      for (const [email, group] of emailGroups) {
+      for (const [email, group] of Array.from(emailGroups.entries())) {
         const attendeeRef = doc(this.db, "global_attendees", email);
         batch.set(
           attendeeRef,

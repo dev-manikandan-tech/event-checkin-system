@@ -1,5 +1,8 @@
 import { NextRequest, NextResponse } from "next/server";
-import { serviceProvider } from "@/services/ServiceProvider";
+import { adminDb } from "@/lib/firebaseAdmin";
+import { FirebaseAdminDatabaseProvider } from "@/services/database/FirebaseAdminDatabaseProvider";
+
+const dbProvider = new FirebaseAdminDatabaseProvider(adminDb);
 
 export async function POST(request: NextRequest) {
   try {
@@ -13,7 +16,7 @@ export async function POST(request: NextRequest) {
     }
 
     try {
-      const attendee = await serviceProvider.database.updateCheckIn(
+      const attendee = await dbProvider.updateCheckIn(
         body.attendeeId,
         true
       );
