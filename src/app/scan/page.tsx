@@ -3,6 +3,15 @@
 import { useEffect, useRef, useState, useCallback } from "react";
 import { Html5Qrcode } from "html5-qrcode";
 
+/** Compute a responsive qrbox size that fits comfortably within the viewport. */
+function getResponsiveQrBox(): { width: number; height: number } {
+  if (typeof window === "undefined") return { width: 200, height: 200 };
+  // Use 60% of the smaller viewport dimension, clamped between 150 and 280
+  const vw = window.innerWidth;
+  const size = Math.max(150, Math.min(280, Math.floor(vw * 0.6)));
+  return { width: size, height: size };
+}
+
 type ScanStatus = "idle" | "scanning" | "success" | "warning" | "error";
 
 interface CheckInResponse {
@@ -87,7 +96,8 @@ export default function ScanPage() {
         { facingMode: "environment" },
         {
           fps: 10,
-          qrbox: { width: 250, height: 250 },
+          qrbox: getResponsiveQrBox(),
+          aspectRatio: 1,
         },
         handleScanSuccess,
         () => {
@@ -115,24 +125,28 @@ export default function ScanPage() {
   }, []);
 
   return (
-    <div className="flex min-h-screen flex-col bg-gray-950 text-white">
+    <div className="flex min-h-screen flex-col overflow-x-hidden bg-gray-950 text-white">
       {/* Header */}
       <header className="border-b border-gray-800 bg-gray-900">
-        <div className="mx-auto max-w-lg px-4 py-4">
-          <h1 className="text-center text-xl font-bold">Event Check-In</h1>
+        <div className="mx-auto max-w-lg px-4 py-3 sm:py-4">
+          <h1 className="text-center text-lg font-bold sm:text-xl">Event Check-In</h1>
           <p className="mt-1 text-center text-xs text-gray-400">
             Scan attendee QR code to check in
           </p>
         </div>
       </header>
 
-      <main className="mx-auto flex w-full max-w-lg flex-1 flex-col items-center px-4 py-6">
-        {/* Scanner Area */}
-        <div className="relative mb-6 w-full overflow-hidden rounded-2xl border-2 border-gray-700 bg-black">
-          <div id="qr-reader" className="w-full" />
+      <main className="mx-auto flex w-full max-w-lg flex-1 flex-col items-center px-3 py-4 sm:px-4 sm:py-6">
+        {/* Scanner Area — constrain all children so the camera feed never overflows */}
+        <div className="relative mb-4 w-full overflow-hidden rounded-2xl border-2 border-gray-700 bg-black sm:mb-6">
+          <div
+            id="qr-reader"
+            className="w-full"
+            style={{ maxWidth: "100%" }}
+          />
           {!isScanning && status !== "scanning" && (
-            <div className="flex h-64 items-center justify-center">
-              <p className="text-gray-500">Camera not active</p>
+            <div className="flex h-52 items-center justify-center sm:h-64">
+              <p className="text-sm text-gray-500">Camera not active</p>
             </div>
           )}
         </div>
@@ -141,24 +155,24 @@ export default function ScanPage() {
         {!isScanning && status !== "scanning" ? (
           <button
             onClick={startScanner}
-            className="mb-6 w-full rounded-xl bg-blue-600 px-6 py-4 text-lg font-semibold text-white transition-colors hover:bg-blue-700 active:bg-blue-800"
+            className="mb-4 w-full rounded-xl bg-blue-600 px-6 py-3.5 text-base font-semibold text-white transition-colors hover:bg-blue-700 active:bg-blue-800 sm:mb-6 sm:py-4 sm:text-lg"
           >
             {status === "idle" ? "Start Scanning" : "Scan Again"}
           </button>
         ) : status === "scanning" ? (
-          <div className="mb-6 flex items-center justify-center py-4">
+          <div className="mb-4 flex items-center justify-center py-3 sm:mb-6 sm:py-4">
             <div className="h-6 w-6 animate-spin rounded-full border-2 border-blue-500 border-t-transparent" />
-            <span className="ml-2 text-gray-400">Processing...</span>
+            <span className="ml-2 text-sm text-gray-400 sm:text-base">Processing...</span>
           </div>
         ) : null}
 
         {/* Result Display */}
         {status === "success" && (
-          <div className="w-full rounded-xl border border-green-800 bg-green-950 p-6 text-center">
+          <div className="w-full rounded-xl border border-green-800 bg-green-950 p-4 text-center sm:p-6">
             {/* Green checkmark */}
-            <div className="mx-auto mb-4 flex h-16 w-16 items-center justify-center rounded-full bg-green-600">
+            <div className="mx-auto mb-3 flex h-14 w-14 items-center justify-center rounded-full bg-green-600 sm:mb-4 sm:h-16 sm:w-16">
               <svg
-                className="h-10 w-10 text-white"
+                className="h-8 w-8 text-white sm:h-10 sm:w-10"
                 fill="none"
                 viewBox="0 0 24 24"
                 stroke="currentColor"
@@ -171,16 +185,16 @@ export default function ScanPage() {
                 />
               </svg>
             </div>
-            <h2 className="mb-1 text-xl font-bold text-green-400">
+            <h2 className="mb-1 text-lg font-bold text-green-400 sm:text-xl">
               Check-In Successful
             </h2>
             {attendeeName && (
-              <p className="text-lg text-green-300">{attendeeName}</p>
+              <p className="text-base text-green-300 sm:text-lg">{attendeeName}</p>
             )}
             <p className="mt-2 text-sm text-green-400/70">{message}</p>
             <button
               onClick={startScanner}
-              className="mt-4 rounded-lg bg-green-700 px-6 py-2 text-sm font-medium text-white transition-colors hover:bg-green-600"
+              className="mt-3 w-full rounded-lg bg-green-700 px-6 py-2.5 text-sm font-medium text-white transition-colors hover:bg-green-600 sm:mt-4 sm:w-auto"
             >
               Scan Next
             </button>
@@ -188,11 +202,11 @@ export default function ScanPage() {
         )}
 
         {status === "warning" && (
-          <div className="w-full rounded-xl border border-yellow-800 bg-yellow-950 p-6 text-center">
+          <div className="w-full rounded-xl border border-yellow-800 bg-yellow-950 p-4 text-center sm:p-6">
             {/* Warning icon */}
-            <div className="mx-auto mb-4 flex h-16 w-16 items-center justify-center rounded-full bg-yellow-600">
+            <div className="mx-auto mb-3 flex h-14 w-14 items-center justify-center rounded-full bg-yellow-600 sm:mb-4 sm:h-16 sm:w-16">
               <svg
-                className="h-10 w-10 text-white"
+                className="h-8 w-8 text-white sm:h-10 sm:w-10"
                 fill="none"
                 viewBox="0 0 24 24"
                 stroke="currentColor"
@@ -205,16 +219,16 @@ export default function ScanPage() {
                 />
               </svg>
             </div>
-            <h2 className="mb-1 text-xl font-bold text-yellow-400">
+            <h2 className="mb-1 text-lg font-bold text-yellow-400 sm:text-xl">
               Already Checked In
             </h2>
             {attendeeName && (
-              <p className="text-lg text-yellow-300">{attendeeName}</p>
+              <p className="text-base text-yellow-300 sm:text-lg">{attendeeName}</p>
             )}
             <p className="mt-2 text-sm text-yellow-400/70">{message}</p>
             <button
               onClick={startScanner}
-              className="mt-4 rounded-lg bg-yellow-700 px-6 py-2 text-sm font-medium text-white transition-colors hover:bg-yellow-600"
+              className="mt-3 w-full rounded-lg bg-yellow-700 px-6 py-2.5 text-sm font-medium text-white transition-colors hover:bg-yellow-600 sm:mt-4 sm:w-auto"
             >
               Scan Next
             </button>
@@ -222,11 +236,11 @@ export default function ScanPage() {
         )}
 
         {status === "error" && (
-          <div className="w-full rounded-xl border border-red-800 bg-red-950 p-6 text-center">
+          <div className="w-full rounded-xl border border-red-800 bg-red-950 p-4 text-center sm:p-6">
             {/* Error icon */}
-            <div className="mx-auto mb-4 flex h-16 w-16 items-center justify-center rounded-full bg-red-600">
+            <div className="mx-auto mb-3 flex h-14 w-14 items-center justify-center rounded-full bg-red-600 sm:mb-4 sm:h-16 sm:w-16">
               <svg
-                className="h-10 w-10 text-white"
+                className="h-8 w-8 text-white sm:h-10 sm:w-10"
                 fill="none"
                 viewBox="0 0 24 24"
                 stroke="currentColor"
@@ -239,13 +253,13 @@ export default function ScanPage() {
                 />
               </svg>
             </div>
-            <h2 className="mb-1 text-xl font-bold text-red-400">
+            <h2 className="mb-1 text-lg font-bold text-red-400 sm:text-xl">
               Check-In Failed
             </h2>
             <p className="mt-2 text-sm text-red-400/70">{message}</p>
             <button
               onClick={startScanner}
-              className="mt-4 rounded-lg bg-red-700 px-6 py-2 text-sm font-medium text-white transition-colors hover:bg-red-600"
+              className="mt-3 w-full rounded-lg bg-red-700 px-6 py-2.5 text-sm font-medium text-white transition-colors hover:bg-red-600 sm:mt-4 sm:w-auto"
             >
               Try Again
             </button>
