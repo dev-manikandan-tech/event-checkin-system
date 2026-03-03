@@ -1,5 +1,6 @@
 import { serviceProvider } from "@/services/ServiceProvider";
 import { generatePassImage } from "@/services/passGenerator";
+import { IDatabaseProvider } from "@/services/IDatabaseProvider";
 
 /** Minimum number of past registrations with no attendance to trigger blacklist */
 const NO_SHOW_THRESHOLD = 2;
@@ -26,8 +27,11 @@ export interface RegistrationResult {
  * A user is blacklisted if they have registered for 2 or more past events
  * and have has_attended (checkedIn) === false for ALL of them.
  */
-async function isBlacklisted(email: string): Promise<boolean> {
-  const pastEvents = await serviceProvider.database.getPastEventHistory(email);
+async function isBlacklisted(
+  email: string,
+  db: IDatabaseProvider
+): Promise<boolean> {
+  const pastEvents = await db.getPastEventHistory(email);
 
   if (pastEvents.length < NO_SHOW_THRESHOLD) {
     return false;
@@ -48,12 +52,19 @@ async function isBlacklisted(email: string): Promise<boolean> {
  * 4. Use the attendee document ID as the ticket_id (for QR code check-in).
  * 5. Generate the event pass image.
  * 6. Send the pass email via IMailProvider.
+ *
+ * @param request - Registration data
+ * @param dbOverride - Optional database provider override (e.g. admin SDK).
+ *                     Falls back to serviceProvider.database if not provided.
  */
 export async function registerAttendee(
-  request: RegistrationRequest
+  request: RegistrationRequest,
+  dbOverride?: IDatabaseProvider
 ): Promise<RegistrationResult> {
+  const db = dbOverride ?? serviceProvider.database;
+
   // Step 1: Blacklist check
-  const blacklisted = await isBlacklisted(request.email);
+  const blacklisted = await isBlacklisted(request.email, db);
   if (blacklisted) {
     return {
       success: false,
@@ -63,7 +74,7 @@ export async function registerAttendee(
   }
 
   // Step 2: Check for duplicate registration
-  const existing = await serviceProvider.database.getAttendeeByEmail(
+  const existing = await db.getAttendeeByEmail(
     request.email,
     request.eventId
   );
@@ -75,7 +86,7 @@ export async function registerAttendee(
   }
 
   // Step 3: Save attendee record
-  const attendee = await serviceProvider.database.saveAttendee({
+  const attendee = await db.saveAttendee({
     name: request.name,
     email: request.email,
     eventId: request.eventId,

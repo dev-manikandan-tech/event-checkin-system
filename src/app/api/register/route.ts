@@ -3,6 +3,10 @@ import {
   registerAttendee,
   RegistrationRequest,
 } from "@/services/registrationService";
+import { adminDb } from "@/lib/firebaseAdmin";
+import { FirebaseAdminDatabaseProvider } from "@/services/database/FirebaseAdminDatabaseProvider";
+
+const dbProvider = new FirebaseAdminDatabaseProvider(adminDb);
 
 export async function POST(request: NextRequest) {
   try {
@@ -29,13 +33,16 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    const result = await registerAttendee({
-      name: body.name,
-      email: body.email,
-      eventId: body.eventId,
-      eventName: body.eventName,
-      eventDate: body.eventDate,
-    });
+    const result = await registerAttendee(
+      {
+        name: body.name,
+        email: body.email,
+        eventId: body.eventId,
+        eventName: body.eventName,
+        eventDate: body.eventDate,
+      },
+      dbProvider
+    );
 
     if (!result.success) {
       return NextResponse.json(result, { status: 403 });

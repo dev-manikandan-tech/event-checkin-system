@@ -1,5 +1,8 @@
 import { NextRequest, NextResponse } from "next/server";
-import { serviceProvider } from "@/services/ServiceProvider";
+import { adminDb } from "@/lib/firebaseAdmin";
+import { FirebaseAdminDatabaseProvider } from "@/services/database/FirebaseAdminDatabaseProvider";
+
+const dbProvider = new FirebaseAdminDatabaseProvider(adminDb);
 
 export async function GET(request: NextRequest) {
   try {
@@ -13,7 +16,7 @@ export async function GET(request: NextRequest) {
       );
     }
 
-    const pastEvents = await serviceProvider.database.getPastEventHistory(email);
+    const pastEvents = await dbProvider.getPastEventHistory(email);
 
     return NextResponse.json({ success: true, pastEvents }, { status: 200 });
   } catch (error) {
