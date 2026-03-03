@@ -21,6 +21,7 @@ interface CheckInResponse {
     id: string;
     name: string;
     email: string;
+    displayId?: string;
     checkedIn: boolean;
   };
 }
@@ -29,6 +30,8 @@ export default function ScanPage() {
   const [status, setStatus] = useState<ScanStatus>("idle");
   const [message, setMessage] = useState("");
   const [attendeeName, setAttendeeName] = useState("");
+  const [attendeeEmail, setAttendeeEmail] = useState("");
+  const [attendeeDisplayId, setAttendeeDisplayId] = useState("");
   const [isScanning, setIsScanning] = useState(false);
   const scannerRef = useRef<Html5Qrcode | null>(null);
   const processingRef = useRef(false);
@@ -60,19 +63,27 @@ export default function ScanPage() {
         setStatus("success");
         setMessage(data.message);
         setAttendeeName(data.attendee?.name ?? "");
+        setAttendeeEmail(data.attendee?.email ?? "");
+        setAttendeeDisplayId(data.attendee?.displayId ?? "");
       } else if (response.status === 409 || data.message?.includes("already")) {
         setStatus("warning");
         setMessage(data.message || "Already checked in.");
         setAttendeeName(data.attendee?.name ?? "");
+        setAttendeeEmail(data.attendee?.email ?? "");
+        setAttendeeDisplayId(data.attendee?.displayId ?? "");
       } else {
         setStatus("error");
         setMessage(data.message || "Check-in failed.");
         setAttendeeName("");
+        setAttendeeEmail("");
+        setAttendeeDisplayId("");
       }
     } catch {
       setStatus("error");
       setMessage("Network error. Please try again.");
       setAttendeeName("");
+      setAttendeeEmail("");
+      setAttendeeDisplayId("");
     } finally {
       processingRef.current = false;
     }
@@ -82,6 +93,8 @@ export default function ScanPage() {
     setStatus("idle");
     setMessage("");
     setAttendeeName("");
+    setAttendeeEmail("");
+    setAttendeeDisplayId("");
 
     try {
       if (!scannerRef.current) {
@@ -189,7 +202,13 @@ export default function ScanPage() {
               Check-In Successful
             </h2>
             {attendeeName && (
-              <p className="text-base text-green-300 sm:text-lg">{attendeeName}</p>
+              <p className="text-base font-semibold text-green-300 sm:text-lg">{attendeeName}</p>
+            )}
+            {attendeeEmail && (
+              <p className="text-sm text-green-300/80">{attendeeEmail}</p>
+            )}
+            {attendeeDisplayId && (
+              <p className="mt-1 font-mono text-xs text-green-400/60">{attendeeDisplayId}</p>
             )}
             <p className="mt-2 text-sm text-green-400/70">{message}</p>
             <button
@@ -223,7 +242,13 @@ export default function ScanPage() {
               Already Checked In
             </h2>
             {attendeeName && (
-              <p className="text-base text-yellow-300 sm:text-lg">{attendeeName}</p>
+              <p className="text-base font-semibold text-yellow-300 sm:text-lg">{attendeeName}</p>
+            )}
+            {attendeeEmail && (
+              <p className="text-sm text-yellow-300/80">{attendeeEmail}</p>
+            )}
+            {attendeeDisplayId && (
+              <p className="mt-1 font-mono text-xs text-yellow-400/60">{attendeeDisplayId}</p>
             )}
             <p className="mt-2 text-sm text-yellow-400/70">{message}</p>
             <button
